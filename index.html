@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>The Hive</title>
+<style>
+  :root{
+    --bg:#1d1a10; --panel:#2a2616; --panel2:#332e1a;
+    --honey:#ffc62e; --honey-d:#e8a200; --pollen:#ffe98a;
+    --text:#f4eccf; --muted:#b6a96f; --good:#8fd36b; --bad:#d36b6b;
+    --line:#4a4225;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);overflow:hidden;}
+  #game{display:flex;height:100%;width:100%;}
+  /* Sidebar */
+  #side{width:330px;min-width:330px;background:var(--panel);border-right:2px solid var(--line);
+        display:flex;flex-direction:column;height:100%;}
+  #side header{padding:16px 18px 10px;border-bottom:2px solid var(--line);}
+  h1{margin:0;font-size:26px;letter-spacing:1px;color:var(--honey);text-shadow:0 2px 0 #000;}
+  h1 span{font-size:15px;color:var(--muted);letter-spacing:2px;}
+  #stats{padding:12px 18px;border-bottom:2px solid var(--line);font-size:13px;line-height:1.7;}
+  #stats .row{display:flex;justify-content:space-between;}
+  #stats b{color:var(--honey);}
+  .honeybig{font-size:30px;font-weight:bold;color:var(--honey);text-shadow:0 2px 0 #000;}
+  #collectWrap{padding:14px 18px;border-bottom:2px solid var(--line);text-align:center;}
+  #collect{width:100%;padding:18px;font-size:18px;font-weight:bold;cursor:pointer;border:none;border-radius:14px;
+    background:linear-gradient(#ffd23f,#e8a200);color:#3a2a00;box-shadow:0 4px 0 #9c6f00;transition:transform .05s, box-shadow .05s;}
+  #collect:active{transform:translateY(3px);box-shadow:0 1px 0 #9c6f00;}
+  #collect small{display:block;font-weight:normal;font-size:12px;opacity:.8;}
+  #pending{color:var(--honey);}
+  #shop{flex:1;overflow-y:auto;padding:10px 14px;}
+  .up{display:flex;align-items:center;gap:10px;background:var(--panel2);border:1px solid var(--line);
+      border-radius:12px;padding:10px;margin-bottom:9px;cursor:pointer;transition:transform .05s,border-color .15s;}
+  .up:hover{border-color:var(--honey);}
+  .up:active{transform:scale(.985);}
+  .up.dis{opacity:.45;cursor:not-allowed;}
+  .up .ico{font-size:24px;width:34px;text-align:center;}
+  .up .body{flex:1;}
+  .up .name{font-weight:bold;font-size:14px;}
+  .up .desc{font-size:11.5px;color:var(--muted);}
+  .up .cost{font-size:13px;font-weight:bold;color:var(--honey);white-space:nowrap;}
+  .up .cost.cant{color:var(--bad);}
+  #foot{padding:10px 18px;border-top:2px solid var(--line);display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);}
+  #reset{background:none;border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:5px 10px;cursor:pointer;font-size:11px;}
+  #reset:hover{border-color:var(--bad);color:var(--bad);}
+  /* Scene */
+  #scene{flex:1;position:relative;}
+  canvas{display:block;width:100%;height:100%;}
+  #hint{position:absolute;top:14px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.45);
+    padding:7px 16px;border-radius:20px;font-size:12.5px;color:var(--text);pointer-events:none;}
+  /* floating +honey text */
+  .float{position:absolute;font-weight:bold;color:var(--honey);text-shadow:0 1px 2px #000;pointer-events:none;
+    animation:floatUp 1s ease-out forwards;font-size:15px;}
+  @keyframes floatUp{from{opacity:1;transform:translateY(0);}to{opacity:0;transform:translateY(-34px);}}
+</style>
+</head>
+<body>
+<div id="game">
+  <div id="side">
+    <header>
+      <h1>THE HIVE <span>🐝</span></h1>
+    </header>
+    <div id="stats">
+      <div class="row"><span>Honey</span><span class="honeybig" id="honey">0</span></div>
+      <div class="row"><span>Bees</span><span><b id="beeCount">1</b> / <span id="cellCount">1</span> cells</span></div>
+      <div class="row"><span>Garden flowers</span><b id="gardenCount">3</b></div>
+      <div class="row"><span>Bee speed</span><b id="speedLvl">1</b></div>
+      <div class="row"><span>Carry capacity</span><b id="capLvl">1</b> pollen</div>
+      <div class="row"><span>Honey / pollen</span><b id="hpp">1</b></div>
+    </div>
+    <div id="collectWrap">
+      <button id="collect">🍯 Collect Honey
+        <small>in hive: <span id="pending">0</span></small>
+      </button>
+    </div>
+    <div id="shop"></div>
+    <div id="foot">
+      <span>auto-saves locally</span>
+      <button id="reset">Reset</button>
+    </div>
+  </div>
+  <div id="scene">
+    <canvas id="cv"></canvas>
+    <div id="hint">Bees fly to the garden, gather pollen, and return it to the hive. Click <b>Collect Honey</b> to bank it!</div>
+  </div>
+</div>
+
+<script>
+//========================= GAME STATE =========================
+const DEF = {
+  honey: 0, pending: 0,
+  cells: 1, bees: 1,
+  speedLvl: 1, capLvl: 1, gardenLvl: 1,
+  hppLvl: 1,
+};
+let S = load();
+
+function load(){
+  try{ const j = JSON.parse(localStorage.getItem('the-hive')); if(j) return Object.assign({}, DEF, j); }catch(e){}
+  return Object.assign({}, DEF);
+}
+function save(){ localStorage.setItem('the-hive', JSON.stringify(S)); }
+setInterval(save, 4000);
+window.addEventListener('beforeunload', save);
+
+// derived values
+const garden = ()=> 2 + S.gardenLvl;           // number of flowers
+const capacity = ()=> S.capLvl;                // pollen per trip
+const beeSpeed = ()=> 135 + (S.speedLvl-1)*50; // px/sec
+const honeyPerPollen = ()=> 5 + (S.hppLvl-1)*2;// value of each pollen
+const gatherTime = ()=> 0.4;                   // sec to fill one pollen at a flower
+
+//========================= UPGRADES =========================
+const UP = [
+  { id:'cell',  ico:'⬡', name:'+1 Hive Cell',   desc:'Room for one more bee',
+    base:2,   mul:1.5,  lvl:()=>S.cells-1,      buy:()=>S.cells++ },
+  { id:'bee',   ico:'🐝', name:'+1 Bee',          desc:'Needs a free cell',
+    base:3,   mul:1.5,  lvl:()=>S.bees-1,       can:()=>S.bees<S.cells, buy:()=>{S.bees++; addBee();} },
+  { id:'speed', ico:'💨', name:'+1 Bee Speed',    desc:'Bees fly faster',
+    base:3,   mul:1.55, lvl:()=>S.speedLvl-1,   buy:()=>S.speedLvl++ },
+  { id:'cap',   ico:'🎒', name:'+1 Carry Capacity', desc:'More pollen per trip',
+    base:5,   mul:1.6,  lvl:()=>S.capLvl-1,     buy:()=>S.capLvl++ },
+  { id:'garden',ico:'🌻', name:'+1 Garden Size',  desc:'More flowers = less queuing',
+    base:4,   mul:1.5,  lvl:()=>S.gardenLvl-1,  buy:()=>S.gardenLvl++ },
+  { id:'hpp',   ico:'🍯', name:'+1 Honey / Pollen', desc:'Each pollen is worth more',
+    base:5,   mul:1.7,  lvl:()=>S.hppLvl-1,     buy:()=>S.hppLvl++ },
+];
+const cost = u => Math.floor(u.base * Math.pow(u.mul, u.lvl()));
+
+//========================= CANVAS / SCENE =========================
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+let W=0,H=0,DPR=1;
+function resize(){
+  DPR = window.devicePixelRatio||1;
+  const r = cv.parentElement.getBoundingClientRect();
+  W=r.width; H=r.height;
+  cv.width=W*DPR; cv.height=H*DPR; ctx.setTransform(DPR,0,0,DPR,0,0);
+  layout();
+}
+window.addEventListener('resize', resize);
+
+// hive position (left), garden position (right/far)
+let HIVE={x:0,y:0}, GARDEN={x:0,y:0};
+function layout(){
+  // Fixed travel distance, centered — so resizing the window does NOT change how far bees fly.
+  const gap = Math.min(360, W-160);   // constant 360px unless the window is too narrow to fit it
+  const cx = W/2;
+  HIVE  = {x: cx - gap/2, y: H*0.5};
+  GARDEN= {x: cx + gap/2, y: H*0.5};
+}
+
+// honeycomb cell layout around the hive center (axial coords, spiral outward)
+let _hexAxial=[[0,0]];
+function buildHexAxial(n){
+  const dirs=[[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]];
+  _hexAxial=[[0,0]];
+  for(let ring=1; _hexAxial.length<n; ring++){
+    let q=-ring, r=ring; // start corner
+    for(let side=0;side<6;side++){
+      for(let s=0;s<ring;s++){
+        _hexAxial.push([q,r]);
+        q+=dirs[side][0]; r+=dirs[side][1];
+      }
+    }
+  }
+}
+function cellPos(i){
+  if(i>=_hexAxial.length) buildHexAxial(i+1);
+  const [q,r]=_hexAxial[i]; const size=15;
+  return {
+    x: HIVE.x + size*1.5*q,
+    y: HIVE.y + size*Math.sqrt(3)*(r + q/2)
+  };
+}
+
+// flower positions in garden
+function flowerPos(i,total){
+  const cols = Math.ceil(Math.sqrt(total));
+  const rows = Math.ceil(total/cols);
+  const sp = 30;
+  const col = i%cols, row = Math.floor(i/cols);
+  return {
+    x: GARDEN.x + (col-(cols-1)/2)*sp,
+    y: GARDEN.y + (row-(rows-1)/2)*sp
+  };
+}
+
+//========================= BEES =========================
+let bees=[];
+function addBee(){
+  bees.push({ x:HIVE.x, y:HIVE.y, state:'toGarden', pollen:0, flower:-1, t:0,
+              cell: bees.length, wob:Math.random()*6.28 });
+}
+function initBees(){ bees=[]; for(let i=0;i<S.bees;i++) addBee(); }
+
+// flower ownership is derived from bees themselves (b.flower), so it can never
+// desync or leak a reservation. A flower is free if no bee currently owns it.
+function flowerFree(f){ for(const b of bees){ if(b.flower===f) return false; } return true; }
+function claimFlower(b, gN){
+  for(let f=0; f<gN; f++){ if(flowerFree(f)){ b.flower=f; return true; } }
+  return false; // all flowers busy -> bee will wait and retry next frame
+}
+
+function updateBee(b, dt){
+  b.wob += dt*9;
+  const sp = beeSpeed();
+  const gN = garden();
+  // drop a now-invalid flower (e.g. garden shrank — shouldn't happen, but safe)
+  if(b.flower>=gN) b.flower=-1;
+
+  if(b.state==='toGarden'){
+    if(b.flower<0) claimFlower(b, gN);
+    if(b.flower>=0){
+      if(moveTo(b, flowerPos(b.flower,gN), sp, dt)){ b.state='gather'; b.t=0; }
+    } else {
+      // no free flower: hover just outside the garden and keep retrying
+      moveTo(b, {x:GARDEN.x-46, y:GARDEN.y}, sp, dt);
+    }
+  } else if(b.state==='gather'){
+    b.t += dt;
+    if(b.t >= gatherTime()){ b.t=0; b.pollen++;
+      if(b.pollen>=capacity()){ b.flower=-1; b.state='toHive'; }
+    }
+  } else if(b.state==='toHive'){
+    if(moveTo(b, cellPos(b.cell), sp, dt)){
+      const gain = b.pollen*honeyPerPollen();
+      S.pending += gain;
+      spawnFloat(cellPos(b.cell).x, cellPos(b.cell).y, '+'+gain);
+      b.pollen=0; b.state='toGarden';
+    }
+  } else { b.state='toGarden'; } // recover from any unknown state
+}
+function moveTo(b,tgt,sp,dt){
+  const dx=tgt.x-b.x, dy=tgt.y-b.y, d=Math.hypot(dx,dy);
+  const step=sp*dt;
+  if(d<=step){ b.x=tgt.x; b.y=tgt.y; return true; }
+  b.x+=dx/d*step; b.y+=dy/d*step; return false;
+}
+
+//========================= RENDER =========================
+function drawHex(x,y,s,fill,stroke){
+  ctx.beginPath();
+  for(let i=0;i<6;i++){ const a=Math.PI/180*(60*i-30); const px=x+s*Math.cos(a), py=y+s*Math.sin(a); i?ctx.lineTo(px,py):ctx.moveTo(px,py); }
+  ctx.closePath();
+  if(fill){ctx.fillStyle=fill;ctx.fill();}
+  if(stroke){ctx.lineWidth=2;ctx.strokeStyle=stroke;ctx.stroke();}
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+
+  // ground gradient
+  let g=ctx.createLinearGradient(0,0,0,H);
+  g.addColorStop(0,'#26331a'); g.addColorStop(1,'#1a1f12');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+
+  // flight path
+  ctx.strokeStyle='rgba(255,210,80,.08)'; ctx.lineWidth=20; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(HIVE.x,HIVE.y); ctx.lineTo(GARDEN.x,GARDEN.y); ctx.stroke();
+
+  // GARDEN flowers
+  const gN=garden();
+  for(let i=0;i<gN;i++){
+    const p=flowerPos(i,gN);
+    // stem
+    ctx.strokeStyle='#4d7a32'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.moveTo(p.x,p.y+4); ctx.lineTo(p.x,p.y+18); ctx.stroke();
+    // petals (yellow when a bee is harvesting it)
+    ctx.fillStyle = !flowerFree(i) ? '#ffd24a':'#ffb6e0';
+    for(let k=0;k<6;k++){const a=k/6*6.28; ctx.beginPath(); ctx.ellipse(p.x+Math.cos(a)*8,p.y+Math.sin(a)*8,5,5,0,0,6.28); ctx.fill();}
+    ctx.fillStyle='#ffce3a'; ctx.beginPath(); ctx.arc(p.x,p.y,5,0,6.28); ctx.fill();
+  }
+  // garden label
+  ctx.fillStyle='rgba(255,255,255,.35)'; ctx.font='12px Segoe UI'; ctx.textAlign='center';
+  ctx.fillText('🌼 GARDEN', GARDEN.x, GARDEN.y - Math.max(40, gN*4));
+
+  // HIVE cells
+  for(let i=0;i<S.cells;i++){
+    const p=cellPos(i);
+    const occupied = i < S.bees;
+    drawHex(p.x,p.y,15, occupied?'#e8a200':'#3a3414', '#ffd23f');
+    drawHex(p.x,p.y,9, occupied?'#ffd23f':'#2a2610', null);
+  }
+  ctx.fillStyle='rgba(255,255,255,.4)'; ctx.font='12px Segoe UI';
+  ctx.fillText('THE HIVE', HIVE.x, HIVE.y - cellRadius() - 14);
+
+  // pending honey glow on hive
+  if(S.pending>0){
+    ctx.fillStyle='rgba(255,198,46,'+Math.min(.5,.12+S.pending/400)+')';
+    ctx.beginPath(); ctx.arc(HIVE.x,HIVE.y, cellRadius()+14,0,6.28); ctx.fill();
+  }
+
+  // BEES
+  for(const b of bees){
+    const wob=Math.sin(b.wob)*2;
+    const x=b.x, y=b.y+wob;
+    // body
+    ctx.fillStyle='#ffce3a';
+    ctx.beginPath(); ctx.ellipse(x,y,6,4,0,0,6.28); ctx.fill();
+    ctx.fillStyle='#000'; // stripes
+    ctx.fillRect(x-2,y-4,1.6,8); ctx.fillRect(x+1,y-4,1.6,8);
+    // wings
+    ctx.fillStyle='rgba(255,255,255,.6)';
+    ctx.beginPath(); ctx.ellipse(x-1,y-5,3,2,0,0,6.28); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x+1,y-5,3,2,0,0,6.28); ctx.fill();
+    // pollen load
+    if(b.pollen>0){ ctx.fillStyle='#ffe98a'; ctx.beginPath(); ctx.arc(x,y+4,1.5+b.pollen*0.4,0,6.28); ctx.fill(); }
+  }
+}
+function cellRadius(){
+  let max=15;
+  for(let i=0;i<S.cells;i++){const p=cellPos(i); max=Math.max(max, Math.hypot(p.x-HIVE.x,p.y-HIVE.y)+15);}
+  return max;
+}
+
+//========================= LOOP =========================
+let last=performance.now();
+function loop(now){
+  requestAnimationFrame(loop);            // schedule next frame FIRST — an error below can never freeze the game
+  const dt=Math.min(.05,(now-last)/1000); last=now;
+  try{
+    while(bees.length<S.bees) addBee();
+    while(bees.length>S.bees) bees.pop();
+    for(const b of bees){ b.cell=Math.min(b.cell,S.cells-1); updateBee(b,dt); }
+    draw();
+  }catch(e){ console.error('loop error',e); }
+}
+
+//========================= UI =========================
+const $=id=>document.getElementById(id);
+function fmt(n){ n=Math.floor(n);
+  if(n<1000) return n;
+  if(n<1e6) return (n/1e3).toFixed(n<1e4?2:1)+'k';
+  if(n<1e9) return (n/1e6).toFixed(2)+'M';
+  return (n/1e9).toFixed(2)+'B';
+}
+function renderStats(){
+  $('honey').textContent=fmt(S.honey);
+  $('beeCount').textContent=S.bees;
+  $('cellCount').textContent=S.cells;
+  $('gardenCount').textContent=garden();
+  $('speedLvl').textContent=S.speedLvl;
+  $('capLvl').textContent=S.capLvl;
+  $('hpp').textContent=honeyPerPollen();
+  $('pending').textContent=fmt(S.pending);
+}
+function renderShop(){
+  const el=$('shop'); el.innerHTML='';
+  for(const u of UP){
+    const c=cost(u);
+    const can = S.honey>=c && (!u.can || u.can());
+    const div=document.createElement('div');
+    div.className='up'+(can?'':' dis');
+    let costTxt = (!u.can||u.can()) ? fmt(c)+' 🍯' : (u.id==='bee'?'need cell':fmt(c)+' 🍯');
+    div.innerHTML=`<div class="ico">${u.ico}</div>
+      <div class="body"><div class="name">${u.name}</div><div class="desc">${u.desc}</div></div>
+      <div class="cost ${can?'':'cant'}">${costTxt}</div>`;
+    div.onclick=()=>{
+      const cc=cost(u);
+      if(S.honey>=cc && (!u.can||u.can())){ S.honey-=cc; u.buy(); renderStats(); renderShop(); save(); }
+    };
+    el.appendChild(div);
+  }
+}
+$('collect').onclick=()=>{
+  if(S.pending>0){
+    const got=S.pending;
+    S.honey+=got; S.pending=0;
+    spawnFloat(HIVE.x, HIVE.y-30, '+'+fmt(got)+' 🍯');
+    renderStats(); renderShop();
+  }
+};
+$('reset').onclick=()=>{
+  if(confirm('Reset all progress?')){ S=Object.assign({},DEF); initBees(); renderStats(); renderShop(); save(); }
+};
+
+// floating text
+function spawnFloat(x,y,txt){
+  const d=document.createElement('div'); d.className='float'; d.textContent=txt;
+  d.style.left=x+'px'; d.style.top=y+'px';
+  $('scene').appendChild(d);
+  setTimeout(()=>d.remove(),1000);
+}
+
+// refresh stats/shop a few times a second (pending changes constantly)
+setInterval(()=>{ renderStats(); renderShop(); }, 250);
+
+//========================= BOOT =========================
+resize();
+initBees();
+renderStats();
+renderShop();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
